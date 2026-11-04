@@ -50,4 +50,3 @@ python -m unittest discover -s desktop -p test_desktop.py -v
 ```
 
 桌面版测试需要先安装 `desktop/requirements.txt` 中适用于当前平台的依赖。初次查询的完整响应时间取决于网络与模型服务，不保证在 500 毫秒内完成。
-
