@@ -16,7 +16,7 @@
    ```
 
 3. In Zotero, select **Tools → Plugins → gear → Install Add-on From File**, and choose the XPI in `dist/`.
-4. Open **Edit → Settings → LLMs-powered Translator** and enter your GLM API key and model.
+4. Open **Edit → Settings → LLMs-powered Translator**, choose an API, and enter its model and API key. For a custom service, enter its full HTTPS Chat Completions URL.
 
 ### Windows desktop
 
@@ -28,7 +28,7 @@ cd desktop
 ./dist/LLMs-powered-Translator/LLMs-powered-Translator.exe
 ```
 
-Keep the complete `dist/LLMs-powered-Translator` folder. Open the tray menu to set a GLM Coding Plan API key and choose automatic selection or `Ctrl + Alt + W`. The default model is `glm-5.3-flash`.
+Keep the complete `dist/LLMs-powered-Translator` folder. Open the tray menu to configure an API, model and key, and choose automatic selection or `Ctrl + Alt + W`. A new installation defaults to the standard Zhipu API; upgrades preserve existing settings.
 
 Select English text for translation into Chinese. Selections containing Chinese are ignored.
 
@@ -44,7 +44,9 @@ open dist/LLMs-powered-Translator.app
 
 Grant Accessibility and Input Monitoring permissions when prompted. Configure the API key and trigger mode in the tray menu; the shortcut is `⌘ + ⌥ + W`.
 
-Selected text and available surrounding context are sent to GLM. The desktop key is stored in the system credential store; the Zotero key is stored using Zotero's encrypted key storage. Keep keys out of the repository. The Zotero plugin also supports an optional licensed Collins API.
+Selected text and available surrounding context are sent to the selected provider. Desktop keys are stored in the system credential store; Zotero keys use Zotero's encrypted key storage. Keys are isolated by API address. Keep keys out of the repository. The Zotero plugin also supports an optional licensed Collins API. For Coding Plan, follow its [tool and usage rules](https://docs.bigmodel.cn/cn/coding-plan/usage-notes).
+
+For example, choose a custom OpenAI compatible API, set `https://api.deepseek.com/chat/completions` as the URL and `deepseek-flash` as the model, then enter your own DeepSeek API key. The provider bills actual usage.
 
 ## Tests
 

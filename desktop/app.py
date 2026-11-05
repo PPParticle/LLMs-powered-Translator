@@ -1,5 +1,6 @@
 """Paper Word desktop: tray selection assistant for Windows and macOS."""
 import json
+import hashlib
 import math
 import os
 import sys
@@ -16,11 +17,18 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFormLayout, QH
 from pynput import keyboard, mouse
 
 from selection import Selection, get_selection
-from word_engine import GLMClient, WORD, valid_selection, core_html, detail_html, sections, test_connection, probe_reachability
+from word_engine import GLMClient, WORD, CODING_ENDPOINT, STANDARD_ENDPOINT, validate_endpoint, valid_selection, core_html, detail_html, sections, test_connection, probe_reachability
 
 SERVICE = "paper-word-desktop"
 ACCOUNT = "glm-api-key"
-DEFAULTS = {"model": "glm-5.3-flash", "mode": "auto"}
+DEFAULTS = {"model": "glm-4.7-flash", "mode": "auto", "endpoint": STANDARD_ENDPOINT}
+
+
+def credential_account(endpoint):
+    endpoint = validate_endpoint(endpoint)
+    if endpoint == CODING_ENDPOINT:
+        return ACCOUNT  # Preserve the previously saved Coding Plan credential.
+    return "api-" + hashlib.sha256(endpoint.encode("utf-8")).hexdigest()
 
 
 def settings_path():
@@ -35,8 +43,13 @@ def load_settings():
             for key in DEFAULTS:
                 if isinstance(data.get(key), str):
                     result[key] = data[key]
-        if result["model"].lower() == "glm-4.7-flash":
-            result["model"] = DEFAULTS["model"]
+            if "endpoint" not in data or data.get("endpoint") in ("standard", "coding"):
+                # 0.3.x used Coding Plan regardless of its old endpoint field.
+                result["endpoint"] = CODING_ENDPOINT
+        try:
+            result["endpoint"] = validate_endpoint(result["endpoint"])
+        except ValueError:
+            result["endpoint"] = CODING_ENDPOINT
         if result["mode"] not in ("auto", "hotkey"):
             result["mode"] = "auto"
         return result
@@ -93,7 +106,8 @@ class AnalysisJob(QRunnable):
         try:
             value = self.engine.analyze(self.selection.word, self.selection.context, self.key,
                 self.config["model"], self.mode,
-                lambda text: self.signals.update.emit(self.token, self.mode, text))
+                lambda text: self.signals.update.emit(self.token, self.mode, text),
+                endpoint=self.config.get("endpoint", CODING_ENDPOINT))
             self.signals.complete.emit(self.token, self.mode, value)
         except Exception as error:
             message = str(error) if isinstance(error, ValueError) else "查询失败，请检查网络和配置。"
@@ -124,13 +138,13 @@ class DiagnosticSignals(QObject):
 
 
 class DiagnosticJob(QRunnable):
-    def __init__(self, key, model, signals):
+    def __init__(self, key, model, endpoint, signals):
         super().__init__()
-        self.key, self.model, self.signals = key, model, signals
+        self.key, self.model, self.endpoint, self.signals = key, model, endpoint, signals
 
     def run(self):
         try:
-            message = test_connection(self.key, self.model)
+            message = test_connection(self.key, self.model, self.endpoint)
         except ValueError as error:
             message = str(error)
         except Exception:
@@ -146,6 +160,15 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(450)
         layout = QVBoxLayout(self)
         form = QFormLayout()
+        self.provider = QComboBox()
+        self.provider.addItem("智谱标准 API", STANDARD_ENDPOINT)
+        self.provider.addItem("智谱 Coding Plan", CODING_ENDPOINT)
+        self.provider.addItem("其他 OpenAI 兼容 API", "custom")
+        endpoint = owner.config.get("endpoint", CODING_ENDPOINT)
+        self.provider.setCurrentIndex(max(0, self.provider.findData(endpoint)) if endpoint in (STANDARD_ENDPOINT, CODING_ENDPOINT) else 2)
+        self.endpoint = QLineEdit(endpoint)
+        self.endpoint.setPlaceholderText("https://服务地址/v1/chat/completions")
+        self.provider.currentIndexChanged.connect(self.provider_changed)
         self.model = QLineEdit(owner.config["model"])
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
@@ -154,14 +177,16 @@ class SettingsDialog(QDialog):
         self.mode.addItem("划词后自动弹出", "auto")
         self.mode.addItem("仅用快捷键", "hotkey")
         self.mode.setCurrentIndex(max(0, self.mode.findData(owner.config["mode"])))
-        form.addRow("GLM 模型", self.model)
-        form.addRow("GLM API Key", self.password)
+        form.addRow("接口类型", self.provider)
+        form.addRow("API 地址", self.endpoint)
+        form.addRow("模型名称", self.model)
+        form.addRow("API Key", self.password)
         form.addRow("触发方式", self.mode)
         layout.addLayout(form)
         key = "⌘ + ⌥ + W" if sys.platform == "darwin" else "Ctrl + Alt + W"
         notice = QLabel("快捷键：" + key + "。自动模式在鼠标划选或双击后尝试读取选区。\n"
-            "查询时会将选词及可获取的附近原文发送给 GLM；仅单词及上下文缓存于本次运行内。\n"
-            "使用 GLM Coding Plan 接口直连，不使用代理；密钥由系统凭据管理器保存。")
+            "选词及附近原文会发送给所选服务；不同接口的密钥分别保存在系统凭据管理器。\n"
+            "使用 HTTPS 直连；请填写你有权使用的 API 地址、模型和密钥。")
         notice.setWordWrap(True)
         notice.setStyleSheet("font-size:12px")
         layout.addWidget(notice)
@@ -180,19 +205,29 @@ class SettingsDialog(QDialog):
         buttons.addWidget(self.test_button); buttons.addStretch(); buttons.addWidget(cancel); buttons.addWidget(save)
         layout.addLayout(buttons)
 
+    def provider_changed(self):
+        chosen = self.provider.currentData()
+        if chosen != "custom":
+            self.endpoint.setText(chosen)
+        self.password.clear()
+
     def test_connection(self):
         try:
-            key = self.password.text().strip() or keyring.get_password(SERVICE, ACCOUNT) or ""
+            endpoint = validate_endpoint(self.endpoint.text())
+            key = self.password.text().strip() or keyring.get_password(SERVICE, credential_account(endpoint)) or ""
+        except ValueError as error:
+            self.diagnostic_status.setText(str(error))
+            return
         except Exception:
             self.diagnostic_status.setText("无法读取系统凭据，请重新填写密钥。")
             return
         model = self.model.text().strip()
         if not key or not model:
-            self.diagnostic_status.setText("请先填写 Coding Plan 密钥和模型名称。")
+            self.diagnostic_status.setText("请先填写此服务的 API Key 和模型名称。")
             return
         self.test_button.setEnabled(False)
         self.diagnostic_status.setText("正在测试连接和认证……")
-        QThreadPool.globalInstance().start(DiagnosticJob(key, model, self.diagnostic_signals))
+        QThreadPool.globalInstance().start(DiagnosticJob(key, model, endpoint, self.diagnostic_signals))
 
     @Slot(str)
     def diagnostic_finished(self, message):
@@ -205,11 +240,16 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "设置", "请填写 GLM 模型名称。")
             return
         try:
+            endpoint = validate_endpoint(self.endpoint.text())
+        except ValueError as error:
+            QMessageBox.warning(self, "设置", str(error))
+            return
+        try:
             if self.password.text().strip():
                 if keyring.get_keyring().priority <= 0:
                     raise RuntimeError("系统凭据存储不可用")
-                keyring.set_password(SERVICE, ACCOUNT, self.password.text().strip())
-            self.owner.config = {"model":model, "mode":self.mode.currentData()}
+                keyring.set_password(SERVICE, credential_account(endpoint), self.password.text().strip())
+            self.owner.config = {"model":model, "mode":self.mode.currentData(), "endpoint":endpoint}
             save_settings(self.owner.config)
             self.owner.engine.clear()
             self.password.clear()
@@ -452,7 +492,7 @@ class Controller(QObject):
         self.popup.context_status.setText("" if selection.context else "未获取上下文")
         self.popup.context_status.setVisible(not bool(selection.context))
         self.popup._core_text = ""
-        self.popup.content.setPlainText("正在连接 GLM……")
+        self.popup.content.setPlainText("正在连接模型服务……")
         pos = QCursor.pos()
         screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
         if screen:
@@ -467,15 +507,16 @@ class Controller(QObject):
         if not self.selection or not valid_selection(self.selection.selected) or not valid_selection(self.selection.word):
             return False
         try:
-            key = keyring.get_password(SERVICE, ACCOUNT) or ""
+            endpoint = self.config.get("endpoint", CODING_ENDPOINT)
+            key = keyring.get_password(SERVICE, credential_account(endpoint)) or ""
         except Exception:
             key = ""
         if not key:
             if mode == "optional":
                 self.extra_running = False
-                self.popup.detail.setPlainText("请在托盘菜单的“设置”中填写 GLM API Key。")
+                self.popup.detail.setPlainText("请在托盘菜单的“设置”中填写当前服务的 API Key。")
             else:
-                self.popup.content.setPlainText("请在托盘菜单的“设置”中填写 GLM API Key。")
+                self.popup.content.setPlainText("请在托盘菜单的“设置”中填写当前服务的 API Key。")
             return False
         self.pool.start(AnalysisJob(self.engine, self.token, self.selection, key, self.config, mode, self.signals))
         return True
@@ -599,7 +640,7 @@ def main():
         return 1
     controller = Controller(app)
     try:
-        key_exists = bool(keyring.get_password(SERVICE, ACCOUNT))
+        key_exists = bool(keyring.get_password(SERVICE, credential_account(controller.config["endpoint"])))
     except Exception:
         key_exists = False
     if not key_exists:

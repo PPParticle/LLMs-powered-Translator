@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 
 import selection
 import word_engine
-from app import Controller, Popup, SettingsDialog, load_settings, save_settings
+from app import Controller, Popup, SettingsDialog, load_settings, save_settings, credential_account
 
 
 class FakeResponse:
@@ -164,6 +164,30 @@ class DesktopTests(unittest.TestCase):
         self.assertNotIn('thinking', body)
         self.assertNotIn("test-secret", json.dumps(body))
 
+    def test_custom_provider_isolated_credentials_and_requests(self):
+        coding = word_engine.CODING_ENDPOINT
+        standard = word_engine.STANDARD_ENDPOINT
+        custom = 'https://example.org/v1/chat/completions'
+        self.assertEqual(credential_account(coding), 'glm-api-key')
+        self.assertNotEqual(credential_account(standard), credential_account(coding))
+        self.assertNotEqual(credential_account(custom), credential_account(standard))
+        for invalid in ('http://example.org/v1/chat/completions', 'https://user:pass@example.org/v1/chat/completions', 'https://example.org/v1/chat/completions?key=secret'):
+            with self.assertRaises(ValueError):
+                word_engine.validate_endpoint(invalid)
+        calls = []
+        def post(url, **kwargs):
+            calls.append((url, kwargs))
+            return FakeResponse('释义：n. 测试')
+        client = word_engine.GLMClient()
+        with patch.object(word_engine.requests, 'Session', side_effect=lambda: FakeSession(post)):
+            for endpoint in (standard, custom, standard):
+                client.analyze('test', '', 'fake-key', 'glm-5.3-flash', 'core', lambda _: None, endpoint=endpoint)
+        self.assertEqual(len(calls), 2, 'different endpoints must not share cached results')
+        self.assertEqual(calls[1][0], custom)
+        self.assertFalse(calls[1][1]['allow_redirects'])
+        self.assertNotIn('reasoning_effort', calls[1][1]['json'])
+        self.assertNotIn('fake-key', json.dumps(calls[1][1]['json']))
+
     def test_connection_diagnostics_and_redaction(self):
         error = requests.exceptions.ConnectionError(urllib3_errors.ReadTimeoutError(None, '/private-secret', 'timed out'))
         message = word_engine.network_error_message(error)
@@ -217,7 +241,7 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(popup.buttons["词根"].text(), "查看词根")
         settings = SettingsDialog(owner)
         self.assertEqual(settings.mode.count(), 2)
-        self.assertFalse(hasattr(settings, 'endpoint'))
+        self.assertEqual(settings.endpoint.text(), word_engine.CODING_ENDPOINT)
         self.assertEqual(settings.password.text(), "")
         popup.close(); settings.close()
         self.assertIsNotNone(app)
@@ -253,7 +277,7 @@ class DesktopTests(unittest.TestCase):
         class Engine:
             def __init__(self): self.calls = []
             def clear(self): pass
-            def analyze(self, word, context, key, model, mode, callback):
+            def analyze(self, word, context, key, model, mode, callback, endpoint=None):
                 self.calls.append(mode)
                 text = ('释义：v. 中断\n词形：三单=interrupts；过去=interrupted\n同词族：interruption n. 中断'
                         if mode == 'core' else '搭配：interrupt handler 中断处理器\n词根：词源不确定\n近义词：suspend v. 暂停')
@@ -306,9 +330,9 @@ class DesktopTests(unittest.TestCase):
             path.write_text(json.dumps({'model':'glm-4.7-flash','endpoint':'standard','mode':'hotkey'}),encoding='utf-8')
             with patch('app.settings_path', return_value=path):
                 settings = load_settings()
-                self.assertEqual(settings, {'model':'glm-5.3-flash','mode':'hotkey'})
+                self.assertEqual(settings, {'model':'glm-4.7-flash','mode':'hotkey','endpoint':word_engine.CODING_ENDPOINT})
                 save_settings(settings)
-                self.assertNotIn('endpoint', json.loads(path.read_text(encoding='utf-8')))
+                self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['endpoint'], word_engine.CODING_ENDPOINT)
                 path.write_text(json.dumps({'model':'glm-custom','endpoint':'standard','mode':'auto'}),encoding='utf-8')
                 self.assertEqual(load_settings()['model'], 'glm-custom')
 
@@ -320,6 +344,22 @@ class DesktopTests(unittest.TestCase):
             dialog.save()
             save_key.assert_not_called()
             self.assertEqual(owner.config['model'], 'glm-5.3-flash')
+        dialog.close()
+
+    def test_switching_service_does_not_reuse_existing_key(self):
+        app = QApplication.instance() or QApplication([])
+        owner = types.SimpleNamespace(config={'model':'glm-5.3-flash','mode':'auto', 'endpoint':word_engine.CODING_ENDPOINT}, engine=types.SimpleNamespace(clear=lambda: None))
+        dialog = SettingsDialog(owner)
+        dialog.endpoint.setText('https://example.org/v1/chat/completions')
+        calls = []
+        def lookup(service, account):
+            calls.append(account)
+            return 'legacy-key' if account == 'glm-api-key' else None
+        with patch('app.keyring.get_password', side_effect=lookup), patch('app.test_connection') as test:
+            dialog.test_connection()
+            test.assert_not_called()
+        self.assertNotIn('glm-api-key', calls)
+        self.assertIn('API Key', dialog.diagnostic_status.text())
         dialog.close()
 
     def test_dark_and_light_palette(self):
