@@ -10,4 +10,11 @@ dist/
 .env.*
 *.pem
 *.key
+*.p12
+*.pfx
+*.secret
+credentials.json
+secrets.json
+.secrets/
 settings.json
+
