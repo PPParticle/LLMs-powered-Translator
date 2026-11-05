@@ -56,9 +56,48 @@ class DesktopTests(unittest.TestCase):
         result = selection.from_neighbors("timiza", "The op", "tion is useful")
         self.assertEqual(result.word, "optimization")
         self.assertIn("[[optimization]]", result.context)
-        self.assertIsNone(selection.from_neighbors("two words", "", ""))
+        title = selection.from_neighbors("LLMs-powered Translator", "# ", "\nA project.")
+        self.assertEqual(title.word, "LLMs-powered Translator")
+        self.assertIn("[[LLMs-powered Translator]]", title.context)
+        self.assertEqual(selection.from_neighbors("安装与配置", "# ", "").word, "安装与配置")
+        self.assertIsNone(selection.from_neighbors("a" * 501, "", ""))
         self.assertEqual(selection.from_value("MSI", "MSI and MSI").context, "")
         self.assertIn("[[MSI]]", selection.from_value("MSI", "Message-signaled interrupt (MSI)").context)
+
+    def test_heading_translation_request(self):
+        calls = []
+        def post(url, **kwargs):
+            calls.append(kwargs['json'])
+            return FakeResponse('释义：大模型驱动的翻译工具')
+        client = word_engine.GLMClient()
+        with patch.object(word_engine.requests, 'Session', side_effect=lambda: FakeSession(post)):
+            client.analyze('LLMs-powered Translator', '# [[LLMs-powered Translator]]', 'fake-key', 'glm-5.3-flash', 'core', lambda _: None)
+        self.assertIn('LLMs-powered Translator', calls[0]['messages'][1]['content'])
+        self.assertIn('短语、句子或标题', calls[0]['messages'][0]['content'])
+
+    def test_windows_checks_parent_when_child_has_empty_selection(self):
+        class Range:
+            def GetText(self, maximum): return 'LLMs-powered Translator'
+            def Clone(self): raise RuntimeError('context unavailable')
+        class Pattern:
+            def __init__(self, ranges): self.ranges = ranges
+            def GetSelection(self): return self.ranges
+        class Control:
+            ProcessId, IsPassword = -1, False
+            def __init__(self, ranges, parent=None): self.ranges, self.parent = ranges, parent
+            def GetPattern(self, pattern): return Pattern(self.ranges)
+            def GetParentControl(self): return self.parent
+        class Initializer:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        parent = Control([Range()])
+        child = Control([types.SimpleNamespace(GetText=lambda maximum: '')], parent)
+        uia = types.SimpleNamespace(UIAutomationInitializerInThread=Initializer,
+            GetFocusedControl=lambda: child, ControlFromPoint=lambda x,y: child,
+            PatternId=types.SimpleNamespace(TextPattern=1))
+        with patch.dict(sys.modules, {'uiautomation': uia}):
+            result = selection.windows_selection(1, 1)
+        self.assertEqual(result.word, 'LLMs-powered Translator')
 
     def test_core_and_detail_format(self):
         text = ("释义：v. 中断\n词形：三单=interrupts；过去=interrupted；过分=interrupted；现在分词=interrupting；n. interrupts\n"

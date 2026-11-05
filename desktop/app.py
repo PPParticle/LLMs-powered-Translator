@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFormLayout, QH
 from pynput import keyboard, mouse
 
 from selection import Selection, get_selection
-from word_engine import GLMClient, WORD, core_html, detail_html, sections, test_connection, probe_reachability
+from word_engine import GLMClient, WORD, valid_selection, core_html, detail_html, sections, test_connection, probe_reachability
 
 SERVICE = "paper-word-desktop"
 ACCOUNT = "glm-api-key"
@@ -505,12 +505,12 @@ class Controller(QObject):
         if self.dialog is not None:
             return
         self.dialog = True
-        word, accepted = QInputDialog.getText(None, "手动查询", "输入英文单词：")
+        word, accepted = QInputDialog.getText(None, "手动查询", "输入词语、短语或句子：")
         self.dialog = None
         word = word.strip()
         if accepted and word:
-            if not WORD.fullmatch(word) or len(word) > 80:
-                QMessageBox.information(None, "LLMs-powered Translator", "请输入单个英文单词或连字符词。")
+            if not valid_selection(word):
+                QMessageBox.information(None, "LLMs-powered Translator", "请输入不超过 500 个字符的词语、短语或句子。")
             else:
                 self.show_word(Selection(word, word))
 

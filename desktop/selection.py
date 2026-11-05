@@ -4,7 +4,7 @@ import re
 import sys
 from dataclasses import dataclass
 
-from word_engine import WORD
+from word_engine import MAX_SELECTION, WORD, valid_selection
 
 
 @dataclass(frozen=True)
@@ -16,8 +16,10 @@ class Selection:
 
 def from_neighbors(selected, before, after):
     selected = selected.strip()
-    if not WORD.fullmatch(selected) or len(selected) > 80:
+    if not valid_selection(selected):
         return None
+    if not WORD.fullmatch(selected) or len(selected) > 80:
+        return Selection(selected, selected, before[-220:] + "[[" + selected + "]]" + after[:220])
     left = re.search(r"[A-Za-z'’-]+$", before)
     right = re.match(r"[A-Za-z'’-]+", after)
     prefix = left.group(0) if left else ""
@@ -35,10 +37,10 @@ def from_neighbors(selected, before, after):
 
 def from_value(selected, text):
     if not isinstance(text, str) or len(text) > 200000 or not selected:
-        return Selection(selected, selected) if WORD.fullmatch(selected) else None
+        return Selection(selected, selected) if valid_selection(selected) else None
     start = text.find(selected)
     if start < 0 or text.find(selected, start + 1) >= 0:
-        return Selection(selected, selected) if WORD.fullmatch(selected) else None
+        return Selection(selected, selected) if valid_selection(selected) else None
     return from_neighbors(selected, text[max(0, start - 300):start], text[start + len(selected):start + len(selected) + 300])
 
 
@@ -78,9 +80,10 @@ def windows_selection(x, y, prefer_focus=False):
                     ranges = pattern.GetSelection() if pattern else []
                     if len(ranges) == 1:
                         target = ranges[0]
-                        selected = target.GetText(81).strip()
-                        if not WORD.fullmatch(selected) or len(selected) > 80:
-                            break
+                        selected = target.GetText(MAX_SELECTION + 1).strip()
+                        if not valid_selection(selected):
+                            control = control.GetParentControl()
+                            continue
                         try:
                             left = target.Clone()
                             left.MoveEndpointByRange(uia.TextPatternRangeEndpoint.End, target, uia.TextPatternRangeEndpoint.Start, waitTime=0)
@@ -120,7 +123,7 @@ def mac_selection():
         return None
     error, value = ax.AXUIElementCopyAttributeValue(element, ax.kAXSelectedTextAttribute, None)
     selected = str(value or "").strip() if not error else ""
-    if not WORD.fullmatch(selected) or len(selected) > 80:
+    if not valid_selection(selected):
         return None
     try:
         error, full = ax.AXUIElementCopyAttributeValue(element, ax.kAXValueAttribute, None)
