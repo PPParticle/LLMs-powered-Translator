@@ -30,6 +30,8 @@ cd desktop
 
 保留完整的 `dist/LLMs-powered-Translator` 文件夹。在托盘菜单中设置 GLM Coding Plan API Key，并选择划词自动查询或 `Ctrl + Alt + W` 快捷键。默认模型为 `glm-5.3-flash`。
 
+选中英文即可翻译为中文；包含中文的选区会被忽略。
+
 ### macOS 桌面版
 
 在目标 Mac 上安装 Python 3.10 或更新版本并构建：

@@ -30,6 +30,8 @@ cd desktop
 
 Keep the complete `dist/LLMs-powered-Translator` folder. Open the tray menu to set a GLM Coding Plan API key and choose automatic selection or `Ctrl + Alt + W`. The default model is `glm-5.3-flash`.
 
+Select English text for translation into Chinese. Selections containing Chinese are ignored.
+
 ### macOS desktop
 
 Install Python 3.10 or newer and build on the target Mac:

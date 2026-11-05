@@ -85,7 +85,10 @@ def windows_selection(x, y, prefer_focus=False):
                     if len(ranges) == 1:
                         target = ranges[0]
                         selected = target.GetText(MAX_SELECTION + 1).strip()
-                        if not valid_selection(selected):
+                        if selected and not valid_selection(selected):
+                            # Do not fall back to an ancestor's stale English selection.
+                            return None
+                        if not selected:
                             control = control.GetParentControl()
                             continue
                         try:

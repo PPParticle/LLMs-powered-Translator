@@ -22,12 +22,20 @@ w.show()
 w.activateWindow()
 w.setFocus()
 cursor = w.textCursor()
-selected = sys.argv[1]
+selected = 'timiza' if sys.argv[1] == '--sequence' else sys.argv[1]
 start = w.toPlainText().index(selected)
 cursor.setPosition(start)
 cursor.setPosition(start + len(selected), QTextCursor.MoveMode.KeepAnchor)
 w.setTextCursor(cursor)
 QTimer.singleShot(1000, lambda: (print(json.dumps({'x':w.mapToGlobal(w.rect().center()).x(),'y':w.mapToGlobal(w.rect().center()).y()}), flush=True)))
+def second_selection():
+    cursor = w.textCursor()
+    start = w.toPlainText().index('powered')
+    cursor.setPosition(start)
+    cursor.setPosition(start + len('powered'), QTextCursor.MoveMode.KeepAnchor)
+    w.setTextCursor(cursor)
+    print('SECOND', flush=True)
+if sys.argv[1] == '--sequence': QTimer.singleShot(3500, second_selection)
 QTimer.singleShot(15000, app.quit)
 sys.exit(app.exec())
 '''
@@ -58,5 +66,27 @@ if __name__ == '__main__':
                 assert saved['word'] == expected and '[[' + expected + ']]' in saved['context'], saved
                 print('PASS: Packaged executable selection:', selected)
       finally:
+        child.terminate()
+        child.wait(timeout=5)
+    # Keep the same external window open across two selections, with a popup in between.
+    from PySide6.QtWidgets import QApplication
+    from app import Popup
+    import types
+    app = QApplication.instance() or QApplication([])
+    child = subprocess.Popen([sys.executable, '-c', CHILD, '--sequence'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        point = json.loads(child.stdout.readline())
+        first = windows_selection(point['x'], point['y'])
+        assert first and first.word == 'optimization', first
+        popup = Popup(types.SimpleNamespace(toggle_detail=lambda name: None))
+        popup.move(0, 0)
+        popup.show()
+        app.processEvents()
+        assert child.stdout.readline().strip() == 'SECOND'
+        second = windows_selection(point['x'], point['y'])
+        assert second and second.word == 'powered', second
+        print('PASS: consecutive selections in the same external window with popup open.')
+        popup.close()
+    finally:
         child.terminate()
         child.wait(timeout=5)

@@ -61,7 +61,8 @@ class DesktopTests(unittest.TestCase):
         title = selection.from_neighbors("LLMs-powered Translator", "# ", "\nA project.")
         self.assertEqual(title.word, "LLMs-powered Translator")
         self.assertIn("[[LLMs-powered Translator]]", title.context)
-        self.assertEqual(selection.from_neighbors("安装与配置", "# ", "").word, "安装与配置")
+        self.assertIsNone(selection.from_neighbors("安装与配置", "# ", ""))
+        self.assertIsNone(selection.from_neighbors("GLM 词典", "", ""))
         self.assertIsNone(selection.from_neighbors("a" * 501, "", ""))
         self.assertEqual(selection.from_value("MSI", "MSI and MSI").context, "")
         self.assertIn("[[MSI]]", selection.from_value("MSI", "Message-signaled interrupt (MSI)").context)
@@ -76,6 +77,16 @@ class DesktopTests(unittest.TestCase):
             client.analyze('LLMs-powered Translator', '# [[LLMs-powered Translator]]', 'fake-key', 'glm-5.3-flash', 'core', lambda _: None)
         self.assertIn('LLMs-powered Translator', calls[0]['messages'][1]['content'])
         self.assertIn('短语、句子或标题', calls[0]['messages'][0]['content'])
+
+    def test_chinese_never_reaches_glm(self):
+        client = word_engine.GLMClient()
+        for text in ('中文', 'English 中文', '𠀀', '123'):
+            self.assertFalse(word_engine.valid_selection(text))
+            with patch.object(word_engine.requests, 'Session') as session:
+                with self.assertRaises(ValueError):
+                    client.analyze(text, '', 'fake-key', 'glm-5.3-flash', 'core', lambda _: None)
+                session.assert_not_called()
+        self.assertTrue(word_engine.valid_selection('English-only translation, 2026!'))
 
     def test_windows_checks_parent_when_child_has_empty_selection(self):
         class Range:
@@ -196,6 +207,21 @@ class DesktopTests(unittest.TestCase):
         popup.close(); settings.close()
         self.assertIsNotNone(app)
 
+    def test_popup_adapts_space_and_does_not_take_focus(self):
+        app = QApplication.instance() or QApplication([])
+        owner = types.SimpleNamespace(toggle_detail=lambda name: None)
+        popup = Popup(owner)
+        popup.set_core('释义：v. 中断')
+        popup.set_detail('搭配')
+        popup.detail.setPlainText('\n'.join('interrupt handler 中断处理程序' for _ in range(8)))
+        popup.show()
+        for _ in range(5): app.processEvents()
+        self.assertTrue(popup.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.assertTrue(popup.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
+        self.assertGreater(popup.detail.height(), popup.content.height())
+        self.assertGreater(popup.detail.height(), 85)
+        popup.close()
+
     def test_controller_uses_one_optional_request(self):
         app = QApplication.instance() or QApplication([])
         class Tray:
@@ -249,6 +275,12 @@ class DesktopTests(unittest.TestCase):
             controller.popup.show()
             controller.hooks.escape.emit()
             self.assertFalse(controller.popup.isVisible(), 'Escape must close the popup')
+            before = len(controller.engine.calls)
+            controller.on_selection(selection.Selection('中文', '中文', 'English context'), 0, 0, False, controller.selection_serial)
+            controller.show_word(selection.Selection('中文', '中文'))
+            app.processEvents()
+            self.assertFalse(controller.popup.isVisible(), 'Chinese selections must not open a popup')
+            self.assertEqual(len(controller.engine.calls), before, 'Chinese selections must not start a request')
             controller.popup.close(); controller.tray.hide()
 
     def test_old_settings_migrate_without_key_loss(self):

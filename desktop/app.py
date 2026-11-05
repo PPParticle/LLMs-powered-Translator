@@ -1,5 +1,6 @@
 """Paper Word desktop: tray selection assistant for Windows and macOS."""
 import json
+import math
 import os
 import sys
 import threading
@@ -218,7 +219,8 @@ class SettingsDialog(QDialog):
 
 class Popup(QWidget):
     def __init__(self, owner):
-        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.owner = owner
         self.setObjectName("pwsPopup")
         self._core_text = ""
@@ -234,7 +236,7 @@ class Popup(QWidget):
         outer.addWidget(self.context_status)
         self.content = QTextBrowser()
         self.content.setOpenExternalLinks(False)
-        outer.addWidget(self.content, 1)
+        outer.addWidget(self.content)
         row = QHBoxLayout()
         self.buttons = {}
         for name in ("搭配", "词根", "近义词"):
@@ -245,11 +247,42 @@ class Popup(QWidget):
         row.addStretch()
         outer.addLayout(row)
         self.detail = QTextBrowser()
-        self.detail.setFixedHeight(85)
         self.detail.hide()
         outer.addWidget(self.detail)
+        self.content.document().contentsChanged.connect(self.schedule_fit)
+        self.detail.document().contentsChanged.connect(self.schedule_fit)
+        self._fit_pending = False
         QApplication.styleHints().colorSchemeChanged.connect(self.refresh_theme)
         self.refresh_theme()
+
+    def schedule_fit(self):
+        if not self._fit_pending:
+            self._fit_pending = True
+            QTimer.singleShot(0, self.fit_contents)
+
+    def fit_contents(self):
+        self._fit_pending = False
+        width = max(100, self.width() - 26)
+        for browser, minimum, maximum in ((self.content, 42, 190), (self.detail, 90, 270)):
+            browser.document().setTextWidth(width)
+            height = max(minimum, min(maximum, math.ceil(browser.document().size().height()) + 8))
+            if browser.minimumHeight() != height or browser.maximumHeight() != height:
+                browser.setFixedHeight(height)
+        self.layout().activate()
+        wanted = self.layout().sizeHint().height()
+        screen = QApplication.screenAt(self.frameGeometry().center()) or QApplication.primaryScreen()
+        if screen:
+            area = screen.availableGeometry()
+            wanted = min(wanted, area.height())
+        self.resize(self.width(), wanted)
+        if screen and self.isVisible():
+            self.move(max(area.left(), min(self.x(), area.right() - self.width() + 1)),
+                max(area.top(), min(self.y(), area.bottom() - self.height() + 1)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_fit_pending'):
+            self.schedule_fit()
 
     def refresh_theme(self, scheme=None):
         scheme = scheme if scheme is not None else QApplication.styleHints().colorScheme()
@@ -279,17 +312,10 @@ class Popup(QWidget):
         self.content.setHtml(core_html(text, self._muted, self._border))
 
     def set_detail(self, active):
-        was_open = not self.detail.isHidden()
         for name, button in self.buttons.items():
             button.setText(("收起" if name == active else "查看") + name)
         self.detail.setVisible(bool(active))
-        if was_open != bool(active):
-            self.resize(self.width(), max(200, self.height() + (100 if active else -100)))
-            screen = QApplication.screenAt(self.frameGeometry().center()) or QApplication.primaryScreen()
-            if screen:
-                area = screen.availableGeometry()
-                self.move(max(area.left(), min(self.x(), area.right() - self.width())),
-                    max(area.top(), min(self.y(), area.bottom() - self.height())))
+        self.schedule_fit()
 
 
 class Controller(QObject):
@@ -405,12 +431,14 @@ class Controller(QObject):
         if serial != self.selection_serial:
             return
         if selection is None:
-            if manual:
-                self.tray.showMessage("LLMs-powered Translator", "无法读取选区；请在托盘菜单选择“手动查询”。")
+            return
+        if not valid_selection(selection.selected) or not valid_selection(selection.word):
             return
         self.show_word(selection)
 
     def show_word(self, selection):
+        if not valid_selection(selection.selected) or not valid_selection(selection.word):
+            return
         self.selection_serial += 1
         self.token += 1
         self.selection = selection
@@ -432,6 +460,8 @@ class Controller(QObject):
         self.submit("core")
 
     def submit(self, mode):
+        if not self.selection or not valid_selection(self.selection.selected) or not valid_selection(self.selection.word):
+            return False
         try:
             key = keyring.get_password(SERVICE, ACCOUNT) or ""
         except Exception:
@@ -505,12 +535,12 @@ class Controller(QObject):
         if self.dialog is not None:
             return
         self.dialog = True
-        word, accepted = QInputDialog.getText(None, "手动查询", "输入词语、短语或句子：")
+        word, accepted = QInputDialog.getText(None, "手动查询", "输入英文词语、短语或句子：")
         self.dialog = None
         word = word.strip()
         if accepted and word:
             if not valid_selection(word):
-                QMessageBox.information(None, "LLMs-powered Translator", "请输入不超过 500 个字符的词语、短语或句子。")
+                QMessageBox.information(None, "LLMs-powered Translator", "请输入不超过 500 个字符的英文词语、短语或句子。")
             else:
                 self.show_word(Selection(word, word))
 
