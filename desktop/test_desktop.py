@@ -220,6 +220,8 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(popup.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
         self.assertGreater(popup.detail.height(), popup.content.height())
         self.assertGreater(popup.detail.height(), 85)
+        self.assertEqual(popup.content.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.assertEqual(popup.detail.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         popup.close()
 
     def test_controller_uses_one_optional_request(self):

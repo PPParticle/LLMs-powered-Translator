@@ -236,6 +236,7 @@ class Popup(QWidget):
         outer.addWidget(self.context_status)
         self.content = QTextBrowser()
         self.content.setOpenExternalLinks(False)
+        self.content.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         outer.addWidget(self.content)
         row = QHBoxLayout()
         self.buttons = {}
@@ -247,6 +248,7 @@ class Popup(QWidget):
         row.addStretch()
         outer.addLayout(row)
         self.detail = QTextBrowser()
+        self.detail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.detail.hide()
         outer.addWidget(self.detail)
         self.content.document().contentsChanged.connect(self.schedule_fit)
@@ -262,7 +264,8 @@ class Popup(QWidget):
 
     def fit_contents(self):
         self._fit_pending = False
-        width = max(100, self.width() - 26)
+        # Leave room for layout margins and a vertical scrollbar when text wraps.
+        width = max(100, self.width() - 42)
         for browser, minimum, maximum in ((self.content, 42, 190), (self.detail, 90, 270)):
             browser.document().setTextWidth(width)
             height = max(minimum, min(maximum, math.ceil(browser.document().size().height()) + 8))
