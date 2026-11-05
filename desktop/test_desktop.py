@@ -56,6 +56,8 @@ class DesktopTests(unittest.TestCase):
         result = selection.from_neighbors("timiza", "The op", "tion is useful")
         self.assertEqual(result.word, "optimization")
         self.assertIn("[[optimization]]", result.context)
+        heading_word = selection.from_neighbors("powered", "LLMs-", " Translator")
+        self.assertEqual(heading_word.word, "powered")
         title = selection.from_neighbors("LLMs-powered Translator", "# ", "\nA project.")
         self.assertEqual(title.word, "LLMs-powered Translator")
         self.assertIn("[[LLMs-powered Translator]]", title.context)
@@ -91,6 +93,9 @@ class DesktopTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args): pass
         parent = Control([Range()])
+        # GitHub headings can be nested much deeper than seven UIA parents.
+        for _ in range(12):
+            parent = Control([], parent)
         child = Control([types.SimpleNamespace(GetText=lambda maximum: '')], parent)
         uia = types.SimpleNamespace(UIAutomationInitializerInThread=Initializer,
             GetFocusedControl=lambda: child, ControlFromPoint=lambda x,y: child,

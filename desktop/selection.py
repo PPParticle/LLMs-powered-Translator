@@ -20,8 +20,10 @@ def from_neighbors(selected, before, after):
         return None
     if not WORD.fullmatch(selected) or len(selected) > 80:
         return Selection(selected, selected, before[-220:] + "[[" + selected + "]]" + after[:220])
-    left = re.search(r"[A-Za-z'’-]+$", before)
-    right = re.match(r"[A-Za-z'’-]+", after)
+    # A selected word next to a hyphen is a separate selection.  Do not
+    # silently turn "powered" in "LLMs-powered" into the entire compound.
+    left = re.search(r"[A-Za-z'’]+$", before)
+    right = re.match(r"[A-Za-z'’]+", after)
     prefix = left.group(0) if left else ""
     suffix = right.group(0) if right else ""
     candidate = prefix + selected + suffix
@@ -70,7 +72,9 @@ def windows_selection(x, y, prefer_focus=False):
                 pass
         for start in starts:
             control = start
-            for _ in range(7):
+            # Browser pages can have many nested layout and heading nodes
+            # between a text fragment and the document that exposes selection.
+            for _ in range(40):
                 if control is None:
                     break
                 try:

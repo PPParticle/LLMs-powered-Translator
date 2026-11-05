@@ -35,7 +35,7 @@ sys.exit(app.exec())
 if __name__ == '__main__':
     if sys.platform != 'win32':
         raise SystemExit('Windows only')
-    for selected, expected in [('timiza', 'optimization'), ('LLMs-powered Translator', 'LLMs-powered Translator')]:
+    for selected, expected in [('timiza', 'optimization'), ('LLMs-powered Translator', 'LLMs-powered Translator'), ('powered', 'powered')]:
       child = subprocess.Popen([sys.executable, '-c', CHILD, selected], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
       try:
         line = child.stdout.readline()
