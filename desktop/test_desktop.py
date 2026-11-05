@@ -92,6 +92,7 @@ class DesktopTests(unittest.TestCase):
         class Range:
             def GetText(self, maximum): return 'LLMs-powered Translator'
             def Clone(self): raise RuntimeError('context unavailable')
+            def GetBoundingRectangles(self): return [types.SimpleNamespace(left=100, top=100, right=260, bottom=120)]
         class Pattern:
             def __init__(self, ranges): self.ranges = ranges
             def GetSelection(self): return self.ranges
@@ -113,7 +114,21 @@ class DesktopTests(unittest.TestCase):
             PatternId=types.SimpleNamespace(TextPattern=1))
         with patch.dict(sys.modules, {'uiautomation': uia}):
             result = selection.windows_selection(1, 1)
+            dragged_object = selection.windows_selection(300, 180, drag_start=(300, 180))
+            dragged_text = selection.windows_selection(110, 110, drag_start=(110, 110))
         self.assertEqual(result.word, 'LLMs-powered Translator')
+        self.assertIsNone(dragged_object)
+        self.assertEqual(dragged_text.word, 'LLMs-powered Translator')
+
+    def test_drag_must_start_near_selected_text_when_geometry_is_available(self):
+        rect = types.SimpleNamespace(left=100, top=100, right=260, bottom=120)
+        target = types.SimpleNamespace(GetBoundingRectangles=lambda: [rect])
+        self.assertTrue(selection.selection_contains_point(target, (110, 110)))
+        self.assertTrue(selection.selection_contains_point(target, (95, 110)))
+        self.assertFalse(selection.selection_contains_point(target, (300, 180)))
+        self.assertTrue(selection.selection_contains_point(target, None))
+        unavailable = types.SimpleNamespace(GetBoundingRectangles=lambda: [])
+        self.assertTrue(selection.selection_contains_point(unavailable, (300, 180)))
 
     def test_core_and_detail_format(self):
         text = ("释义：v. 中断\n词形：三单=interrupts；过去=interrupted；过分=interrupted；现在分词=interrupting；n. interrupts\n"

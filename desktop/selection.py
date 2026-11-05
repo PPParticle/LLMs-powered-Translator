@@ -46,7 +46,21 @@ def from_value(selected, text):
     return from_neighbors(selected, text[max(0, start - 300):start], text[start + len(selected):start + len(selected) + 300])
 
 
-def windows_selection(x, y, prefer_focus=False):
+def selection_contains_point(target, point):
+    """Reject object manipulation when a provider exposes actual text rectangles."""
+    if point is None:
+        return True
+    try:
+        rectangles = target.GetBoundingRectangles()
+    except Exception:
+        return True
+    if not rectangles:
+        return True
+    x, y = point
+    return any(r.left - 8 <= x <= r.right + 8 and r.top - 8 <= y <= r.bottom + 8 for r in rectangles)
+
+
+def windows_selection(x, y, prefer_focus=False, drag_start=None):
     import uiautomation as uia
     with uia.UIAutomationInitializerInThread():
         starts = []
@@ -91,6 +105,8 @@ def windows_selection(x, y, prefer_focus=False):
                         if not selected:
                             control = control.GetParentControl()
                             continue
+                        if not selection_contains_point(target, drag_start):
+                            return None
                         try:
                             left = target.Clone()
                             left.MoveEndpointByRange(uia.TextPatternRangeEndpoint.End, target, uia.TextPatternRangeEndpoint.Start, waitTime=0)
@@ -141,10 +157,10 @@ def mac_selection():
     return Selection(selected, selected)
 
 
-def get_selection(x, y, prefer_focus=False):
+def get_selection(x, y, prefer_focus=False, drag_start=None):
     try:
         if sys.platform == "win32":
-            return windows_selection(int(x), int(y), prefer_focus)
+            return windows_selection(int(x), int(y), prefer_focus, drag_start)
         if sys.platform == "darwin":
             return mac_selection()
     except Exception:

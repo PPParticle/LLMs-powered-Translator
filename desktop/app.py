@@ -101,17 +101,18 @@ class AnalysisJob(QRunnable):
 
 
 class SelectionJob(QRunnable):
-    def __init__(self, x, y, manual, serial, signals):
+    def __init__(self, x, y, manual, serial, signals, drag_start=None):
         super().__init__()
         self.x, self.y, self.manual, self.serial, self.signals = x, y, manual, serial, signals
+        self.drag_start = drag_start
 
     def run(self):
-        result = get_selection(self.x, self.y, prefer_focus=self.manual)
+        result = get_selection(self.x, self.y, prefer_focus=self.manual, drag_start=self.drag_start)
         self.signals.selection.emit(result, self.x, self.y, self.manual, self.serial)
 
 
 class HookSignals(QObject):
-    mouse_release = Signal(int, int)
+    mouse_release = Signal(int, int, int, int)
     mouse_press = Signal()
     hotkey = Signal()
     dismiss = Signal()
@@ -381,7 +382,7 @@ class Controller(QObject):
             down = self._last_down
             self._last_down = None
             if down and (abs(x-down[0]) + abs(y-down[1]) > 4 or double):
-                self.hooks.mouse_release.emit(int(x), int(y))
+                self.hooks.mouse_release.emit(int(x), int(y), int(down[0]), int(down[1]))
         try:
             self.mouse_listener = mouse.Listener(on_click=on_click)
             self.mouse_listener.start()
@@ -394,15 +395,15 @@ class Controller(QObject):
         except Exception:
             self.tray.showMessage("LLMs-powered Translator", "全局监听不可用，请检查系统辅助功能权限或使用手动查询。")
 
-    @Slot(int, int)
-    def on_mouse_release(self, x, y):
+    @Slot(int, int, int, int)
+    def on_mouse_release(self, x, y, start_x, start_y):
         if self.config["mode"] != "auto" or self.dialog is not None:
             return
         if QApplication.topLevelAt(QCursor.pos()) is not None:
             return
         self.selection_serial += 1
         serial = self.selection_serial
-        QTimer.singleShot(160, lambda: self.pool.start(SelectionJob(x, y, False, serial, self.signals)) if serial == self.selection_serial else None)
+        QTimer.singleShot(160, lambda: self.pool.start(SelectionJob(x, y, False, serial, self.signals, (start_x, start_y))) if serial == self.selection_serial else None)
 
     def dismiss_popup(self):
         self.selection_serial += 1

@@ -27,7 +27,13 @@ start = w.toPlainText().index(selected)
 cursor.setPosition(start)
 cursor.setPosition(start + len(selected), QTextCursor.MoveMode.KeepAnchor)
 w.setTextCursor(cursor)
-QTimer.singleShot(1000, lambda: (print(json.dumps({'x':w.mapToGlobal(w.rect().center()).x(),'y':w.mapToGlobal(w.rect().center()).y()}), flush=True)))
+def report_point():
+    caret = w.textCursor()
+    caret.setPosition(start)
+    text_point = w.viewport().mapToGlobal(w.cursorRect(caret).center())
+    point = w.mapToGlobal(w.rect().center())
+    print(json.dumps({'x':point.x(),'y':point.y(),'sx':text_point.x(),'sy':text_point.y()}), flush=True)
+QTimer.singleShot(1000, report_point)
 def second_selection():
     cursor = w.textCursor()
     start = w.toPlainText().index('powered')
@@ -50,7 +56,7 @@ if __name__ == '__main__':
         if not line:
             raise RuntimeError('Fixture failed: ' + child.stderr.read()[:500])
         point = json.loads(line)
-        result = windows_selection(point['x'], point['y'])
+        result = windows_selection(point['x'], point['y'], drag_start=(point['sx'], point['sy']))
         if not result:
             raise RuntimeError('Text selection not exposed by this Qt control')
         assert result.selected == selected, result
